@@ -15,6 +15,9 @@ Sistema para geração, codificação e impressão de etiquetas RFID em conformi
 - **Banco de Dados:** SQLite3
 - **Comunicação de Impressão:** Win32Print (Protocolo RAW para Zebra/Argox)
 
+## 📸 Interface do Software
+<img src="assets/programa_screenshot.png" width="900px">
+
 ---
 Desenvolvido by:<br>
 <a href="https://www.filipegomes.tech/" target="_blank"><img src="assets/assinatura_transparente.png" width="200px"></a>
