@@ -74,14 +74,16 @@ def obter_proximo_epc():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
 
-    cursor.execute("SELECT MAX(epc) FROM impressoes")
+    cursor.execute("SELECT epc FROM impressoes ORDER BY id DESC LIMIT 1")
     resultado = cursor.fetchone()
     conn.close()
 
-    if resultado[0] is None:
-        return 10001 # Primeiro EPC se banco estiver em branco
-    else:
-        return int(resultado[0]) + 1
+    if not resultado:
+        return 1
+    
+    epc = resultado[0]
+    serial = epc[-14:]
+    return int(serial) + 1
 
 def get_connection():
     return sqlite3.connect(DB_NAME)
