@@ -1,21 +1,25 @@
 import customtkinter as ctk
-import tkinter as tk
 from tkinter import messagebox, ttk
 from PIL import Image, ImageTk
 import os
+import json
 
 from src.config import resource_path
 
-from src.database import init_db, registrar_impressao, buscar_historico, obter_proximo_epc
+from services.database import init_db, registrar_impressao, buscar_historico, obter_proximo_epc
 from services.printer_service import listar_impressoras, imprimir
 from services.zpl_service import montar_zpl
 from services.preview_service import gerar_preview
+from services.ativo_service import registrar_ativo, buscar_ativos
 
 
 class AppRFID(ctk.CTk):
 
     def __init__(self):
         super().__init__()
+        scale = self.carregar_scaling()
+        ctk.set_widget_scaling(scale)
+        ctk.set_window_scaling(scale)
 
         self.title("RFID Almoxarifado Marluvas - v1.1.0")
         self.geometry("1280x850")
@@ -120,6 +124,23 @@ class AppRFID(ctk.CTk):
         self.combo_presets.pack(pady=5, padx=20)
         self.load_signature()
 
+        # Controle Scaling
+        ctk.CTkLabel(
+            self.sidebar,
+            text="Escala da Interface",
+            font=("Segoe UI", 11, "bold")
+        ).pack(anchor="w", padx=30, pady=(15,0))
+
+        self.combo_scaling = ctk.CTkComboBox(
+            self.sidebar,
+            values=["110%", "100%", "90%", "80%", "75%"],
+            width=220,
+            command=self.alterar_scaling
+        )
+        valor_atual = int(self.carregar_scaling() * 100)
+        self.combo_scaling.set(f"{valor_atual}%")
+        self.combo_scaling.pack(pady=5, padx=20)
+
     # ASSINATURA
     def load_signature(self):
         sig_path = resource_path("assets/img/assinatura.png")
@@ -144,6 +165,9 @@ class AppRFID(ctk.CTk):
 
     # ÁREA PRINCIPAL
     def create_main_area(self):
+        width = self.winfo_width()
+        height = self.winfo_height()
+
         self.tabview = ctk.CTkTabview(
             self,
             corner_radius=20,
@@ -151,11 +175,14 @@ class AppRFID(ctk.CTk):
             segmented_button_selected_color="#1A73E8"
         )
 
+
         self.tabview.grid(row=0, column=1, padx=25, pady=25, sticky="nsew")
         self.tab_print = self.tabview.add("Emissão de Etiquetas")
         self.tab_history = self.tabview.add("Histórico Etiquetas")
+        self.tab_ativos = self.tabview.add("Consulta de Ativos")
         self.setup_aba_impressao()
         self.setup_aba_historico()
+        self.setup_aba_ativos()
 
     # ABA IMPRESSÃO
     def setup_aba_impressao(self):
@@ -166,31 +193,42 @@ class AppRFID(ctk.CTk):
 
         self.fields = {}
         fields_data = [
-            ("EPC RFID", f"{self.epc_inicial}", "epc"),
-            ("Campo 1", "Bota Marluvas", "ex1"),
-            ("Campo 2", "PAT-MAR-001", "ex2"),
-            ("Campo 3", "ALMOX-01", "ex3"),
-            ("Campo 4", "SISTEMA", "ex4")
+            ("EPC RFID:", f"{self.epc_inicial}", "epc", "entry"),
+            ("Descrição:", "Bota Marluvas", "ex1", "entry"),
+            ("Patrimônio:", "6565", "ex2", "entry"),
+            ("Tipo:", ["DIVERSOS", "EMPILHADEIRA", "ESCADA", "MÁQUINA", "PALETEIRA", "PLATAFORMA", "TRANSPALETEIRA"], "ex3", "combo"),
+            ("Unidade", ["Dores de Campos", "Oliveira", "Capitão Eneas"], "ex4", "combo"),
+            ("Status", ["ATIVO", "DANIFICADO", "MANUTENÇÃO", "DESCARTADO"], "ex5", "combo")
         ]
 
-        for label, default, key in fields_data:
+        for label, default, key, tipo in fields_data:
             ctk.CTkLabel(form_card, text=label, font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=25, pady=(12, 0))
-            entry = ctk.CTkEntry(form_card, height=38, corner_radius=8, border_color="#D1D5DB")
-            entry.insert(0, default)
+
+            if tipo == "entry":
+                entry = ctk.CTkEntry(form_card, height=38, corner_radius=8, border_color="#D1D5DB")
+                entry.insert(0, default)
+
+            elif tipo == "combo":
+                entry = ctk.CTkComboBox(
+                    form_card,
+                    values=default
+                )
+                entry.set(default[0])
+
             entry.pack(fill="x", padx=25, pady=2)
             self.fields[key] = entry
 
         self.btn_print = ctk.CTkButton(
             form_card,
             text="IMPRIMIR ETIQUETA",
-            height=65,
+            height=50,
             font=("Segoe UI", 18, "bold"),
             fg_color="#28A745",
             hover_color="#218838",
             corner_radius=10,
             command=self.imprimir_e_incrementar
         )
-        self.btn_print.pack(fill="x", pady=(25, 10), padx=25)
+        self.btn_print.pack(fill="x", pady=(10, 5), padx=25)
 
         # Botão: ATUALIZAR PREVIEW
         atualizar_icone_path = resource_path("assets/icon/atualizar.png")
@@ -205,7 +243,7 @@ class AppRFID(ctk.CTk):
             self.btn_preview = ctk.CTkButton(
                 form_card,
                 text="Atualizar Preview",
-                height=65,
+                height=50,
                 font=("Segoe UI", 18, "bold"),
                 corner_radius=10,
                 fg_color="transparent",
@@ -214,7 +252,7 @@ class AppRFID(ctk.CTk):
                 image=atualizar_icon,
                 command=self.gerar_preview
             )
-            self.btn_preview.pack(fill="x", pady=(25,10), padx=25)
+            self.btn_preview.pack(fill="x", pady=(10, 5), padx=25)
         else:
             ctk.CTkButton(
                 form_card,
@@ -241,17 +279,18 @@ class AppRFID(ctk.CTk):
     def setup_aba_historico(self):
         self.tree_frame = ctk.CTkFrame(self.tab_history, fg_color="transparent")
         self.tree_frame.pack(expand=True, fill="both", padx=10, pady=10)
-        columns = ("id", "data", "epc", "campo1", "campo2", "campo3", "campo4")
+        columns = ("id", "data_criacao", "epc", "descricao", "patrimonio", "unidade", "tipo", "status")
         self.tree = ttk.Treeview(self.tree_frame, columns=columns, show="headings")
 
         headings = {
             "id": "ID",
-            "data": "Data/Hora",
+            "data_criacao": "Data/Hora",
             "epc": "EPC",
-            "campo1": "Campo 1",
-            "campo2": "Campo 2",
-            "campo3": "Campo 3",
-            "campo4": "Campo 4"
+            "descricao": "Descrição",
+            "patrimonio": "Patrimônio",
+            "unidade": "Unidade",
+            "tipo": "Tipo",
+            "status": "Status"
         }
 
         for col, text in headings.items():
@@ -259,6 +298,73 @@ class AppRFID(ctk.CTk):
             self.tree.column(col, width=100 if col != "data" else 150, anchor="center")
         self.tree.pack(expand=True, fill="both")
         self.atualizar_tabela_historico()
+
+    def setup_aba_ativos(self):
+        self.tab_ativos.grid_columnconfigure(0, weight=1)
+        self.tab_ativos.grid_rowconfigure(1, weight=1)
+
+        filtro_frame = ctk.CTkFrame(self.tab_ativos, fg_color="#F8F9FA")
+        filtro_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=10)
+
+        self.entry_busca = ctk.CTkEntry(filtro_frame, placeholder_text="Buscar...")
+        self.entry_busca.grid(row=0, column=0, padx=10, pady=10)
+
+        self.combo_status = ctk.CTkComboBox(
+            filtro_frame,
+            values=["", "ATIVO", "DANIFICADO", "MANUTENÇÃO", "DESCARTE"]
+        )
+        self.combo_status.grid(row=0, column=1, padx=10)
+
+        self.combo_unidade = ctk.CTkComboBox(
+            filtro_frame,
+            values=["", "DORES DE CAMPOS", "OLIVEIRA", "CAPITÃO ENEAS"]
+        )
+        self.combo_unidade.grid(row=0, column=2, padx=10)
+
+        ctk.CTkButton(
+            filtro_frame,
+            text="Buscar",
+            command=self.buscar_ativo_ui
+        ).grid(row=0, column=3, padx=10)
+
+        self.tree_ativos = ttk.Treeview(
+            self.tab_ativos,
+            columns=("epc", "descricao", "patrimonio","tipo", "unidade", "status"),
+            show="headings"
+        )
+        headings = {
+            "epc": "EPC",
+            "descricao": "Descrição",
+            "patrimonio": "Patriomônio",
+            "tipo": "Tipo",
+            "unidade": "Unidade",
+            "status": "Status"
+        }
+
+        for col, text in headings.items():
+            self.tree_ativos.heading(col, text=text)
+            self.tree_ativos.column(col, anchor="center", width=120)
+
+        self.tree_ativos.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
+
+    def buscar_ativo_ui(self):
+        texto = self.entry_busca.get()
+        status = self.combo_status.get()
+        unidade = self.combo_unidade.get()
+
+        resultados = buscar_ativos(
+            filtro_texto=texto,
+            status=status,
+            unidade=unidade
+        )
+        self.atualizar_tabela_ativos(resultados)
+
+    def atualizar_tabela_ativos(self, dados):
+        for i in self.tree_ativos.get_children():
+            self.tree_ativos.delete(i)
+
+        for row in dados:
+            self.tree_ativos.insert("", "end", values=row)
 
     # STATUS BAR
     def create_status_bar(self):
@@ -328,7 +434,8 @@ class AppRFID(ctk.CTk):
                 v["ex1"],
                 v["ex2"],
                 v["ex3"],
-                v["ex4"]
+                v["ex4"],
+                v["ex5"]
             )
             if v["epc"].isdigit():
                 self.fields["epc"].delete(0, "end")
@@ -337,6 +444,20 @@ class AppRFID(ctk.CTk):
             self.atualizar_tabela_historico()
             self.gerar_preview()
             self.lbl_status.configure(text=f"✅ Sucesso: EPC {v['epc']} registrado.")
+
+            try:
+                registrar_ativo(
+                    epc=v["epc"],
+                    descricao=v["ex1"],
+                    patrimonio=v["ex2"],
+                    unidade=v["ex4"].upper(),
+                    tipo=v["ex3"].strip().upper(),
+                    status=v["ex5"].strip().upper()
+                )
+                messagebox.showinfo("Sucesso", "Ativo Cadastrado")
+            except Exception as e:
+                messagebox.showerror("Erro", str(e))
+
 
         except Exception as e:
             messagebox.showerror("Erro", str(e))
@@ -351,3 +472,22 @@ class AppRFID(ctk.CTk):
             self.conf_height_mm.set("50")
 
         self.gerar_preview()
+
+    # SCALING
+    def carregar_scaling(self):
+        try:
+            with open("config.json") as f:
+                return float(json.load(f).get("scaling", 1.0))
+        except:
+            return 1.0
+
+    def salvar_scaling(self, valor):
+        with open("config.json", "w") as f:
+            json.dump({"scaling": valor}, f)
+
+    def alterar_scaling(self, valor):
+        scale = int(valor.replace("%", "")) / 100
+
+        ctk.set_widget_scaling(scale)
+        ctk.set_window_scaling(scale)
+        self.salvar_scaling(scale)
