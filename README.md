@@ -20,4 +20,4 @@ Sistema para geração, codificação e impressão de etiquetas RFID em conformi
 
 ---
 Desenvolvido by:<br>
-<a href="https://www.filipegomes.tech/" target="_blank"><img src="assets/assinatura_transparente.png" width="200px"></a>
+<a href="https://www.filipegomes.tech/" target="_blank"><img src="assets/img/logo_transparente.png" width="200px"></a>
