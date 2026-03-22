@@ -1,4 +1,6 @@
-<img src="assets/img/logo.png" width="150px"/>  # RFID Almoxarifado Marluvas v2.0 🚀
+<img src="assets/img/logo.png" width="410px"/>
+
+# RFID Almoxarifado Marluvas v2.0 🚀
 
 Sistema para geração, codificação e impressão de etiquetas RFID em conformidade com padrões industriais de rastreabilidade.
 
